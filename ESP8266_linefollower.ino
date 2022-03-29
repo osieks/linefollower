@@ -1,3 +1,4 @@
+
 #include <SoftwareSerial.h>
 
 //for ota
@@ -7,19 +8,19 @@
 SoftwareSerial serial(3,1);
 
 const char *ssid     = "osiek";
-const char *password = "osiek123";
+const char *password = "osiekrulz";
 
-byte p[8];
-int i;
+//WifiServer
+WiFiServer server(300);
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   //Serial.begin(19200);
   WiFi.begin(ssid, password);
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+  if (WiFi.waitForConnectResult() != WL_CONNECTED) {
     Serial.println("Connection Failed! Rebooting...");
-    delay(5000);
+    //delay(5000);
     //ESP.restart();
   }
   
@@ -62,18 +63,261 @@ void setup() {
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
   //END OF OTA
+
+  //WIFI SERVER
+      
+  server.begin(300);
+  Serial.println("Server started");
+  // Print the IP address
+  Serial.print("Use this URL to connect: ");
+  Serial.print("http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/");
 }
 
-int data_in;
+
+byte p[8];
+bool p_bool[8];
+byte p_max = 0;
+byte p_min = 255;
+
+int const ilosc_probek_do_kalibracji=10;
+byte p_granica[ilosc_probek_do_kalibracji];
+uint16_t p_granica_sum = 0;
+byte p_granica_final = 125;
+
+int i,j;
+String request; // for server
+unsigned long currentMillis = millis();
+unsigned long previousMillis = millis();
+
+bool automat=LOW;
+bool debug=HIGH;
+
+uint16_t Position = 0;
+uint16_t Position_MIDDLE = 4500;
+uint16_t PID_P = 0;
+uint16_t PID_I = 0;
+uint16_t PID_D = 0;
+uint16_t PID_prevP = 0;
+uint16_t PID_output = 0;
+
+uint16_t  Kd = 7;
+uint16_t  Kp = 2;
+uint16_t  Ki = 16000;
+
+uint16_t Speed_Limit = 100;// I DONT KNOW YET
+uint16_t Speed = 100;// I DONT KNOW YET
+
+uint16_t moje_readline(bool p_in[8]){
+  uint16_t wynik = 0;
+  uint16_t dol = 0;
+  int i=0;
+  for(i=0;i<=7;i++){
+    wynik+=(i+1)*1000*p_in[i];
+    dol +=p_in[i];
+  }
+  return wynik/dol;
+}
 
 void loop() {
   // put your main code here, to run repeatedly:
   ArduinoOTA.handle();
-  Serial.read(p,8);
-  for(i=0;i<=7;i++){
-    Serial.print(p[i]);
-    Serial.print(" ");
+
+  
+  currentMillis = millis();
+  /****************************reset_request*******************************/
+  if(currentMillis - previousMillis >= 10){
+    previousMillis = currentMillis;
+
+    if(automat==HIGH){
+      Position = moje_readline(p_bool); 
+      Serial.println(Position);
+      PID_P = PID_P - PositionMIDDLE;             
+      PID_D = PID_P - PID_prevP;         
+      PID_I += PID_P;                                 
+      PID_prevP = PID_P;                         
+    
+      PID_output = PID_P / Kp + PID_I / Ki + PID_D * Kd;
+      Serial.print(" PID_output");
+      Serial.println(PID_output);
+
+      if(PID_output>Speed_Limit){
+        PID_output = Speed_Limit;
+      }else if(PID_output<-Speed_Limit){
+        PID_output = -Speed_Limit;
+      }
+
+      if (PID_output < 0){
+        //Motor_SetSpeed(Speed + PID_output, Speed);
+      }
+      else
+      {
+        //Motor_SetSpeed(Speed, Speed - PID_output);
+      }
+  
+    }
+
+    if (WiFi.waitForConnectResult() != WL_CONNECTED) {
+      Serial.println("Connection Failed! Rebooting...");
+      WiFi.begin(ssid, password);
+      //ESP.restart();
+    }
+    
+    Serial.read(p,8);
+    
+    for(i=0;i<=7;i++){
+      if(debug=HIGH){
+        Serial.print(p[i]);
+        Serial.print(" ");
+      }
+      if(p[i]>p_granica_final){
+        p_bool[i]=HIGH;
+      }else{
+        p_bool[i]=LOW;
+      }
+    }
+    if(debug=HIGH)Serial.println();
+
+    if(debug=HIGH){
+    for(i=0;i<=7;i++){
+      Serial.print(p_bool[i]);
+      Serial.print(" ");
+    }
+    Serial.println();
+    }
+    
+    // SERVER WIFI
+    WiFiClient client = server.available();
+    if (client) {
+      //Serial.print("client");
+      request = client.readStringUntil('\r');
+      client.flush();
+
+      if (request.indexOf("/WIFI_CONTROL=UP") != -1) {
+        //digitalWrite(D0, LOW);
+        //digitalWrite(D1, HIGH);
+      }else if (request.indexOf("/WIFI_CONTROL=DOWN") != -1) {
+        //digitalWrite(D1, LOW);
+        //digitalWrite(D0, HIGH);
+      }else if (request.indexOf("/WIFI_CONTROL=STOP") != -1) {
+        //digitalWrite(D0, HIGH);
+        //digitalWrite(D1, HIGH);
+      }else if (request.indexOf("/WIFI_CONTROL=LEFT") != -1) {
+        //digitalWrite(D0, HIGH);
+        //digitalWrite(D1, HIGH);
+      }else if (request.indexOf("/WIFI_CONTROL=RIGHT") != -1) {
+        //digitalWrite(D0, HIGH);
+        //digitalWrite(D1, HIGH);
+      }else if (request.indexOf("/WIFI_AUTOMAT=ON") != -1) {
+        automat=HIGH;
+      }else if (request.indexOf("/WIFI_AUTOMAT=OFF") != -1) {
+        automat=LOW;
+      }else if (request.indexOf("/WIFI_KALIBRACJA=ON") != -1) {
+        p_granica_sum = 0;
+        for(j=0;j<ilosc_probek_do_kalibracji;j++){
+          Serial.read(p,8);
+          for(i=0;i<8;i++){
+            if(p[i]>p_max){
+              p_max = p[i];
+            }
+            if(p[i]<p_min){
+              p_min = p[i];
+            }
+          }
+          p_granica[j] = (p_max + p_min)/2;
+          p_granica_sum += p_granica[j];
+          if(debug==HIGH){
+            Serial.print(" p_max = ");
+            Serial.print(p_max);
+            Serial.print(" p_min = ");
+            Serial.print(p_min);
+            Serial.print(" p_granica = ");
+            for(i=0;i<ilosc_probek_do_kalibracji;i++){
+              Serial.print(p_granica[i]);
+              Serial.print(' ');
+            }
+            Serial.print(" p_granica_sum = ");
+            Serial.print(p_granica_sum);
+            Serial.println();
+          }
+          delay(10);
+        }
+        p_granica_final = p_granica_sum/ilosc_probek_do_kalibracji;
+      }
+      
+      // Return the response
+      client.println("HTTP/1.1 200 OK");
+      client.println("Content-Type: text/html");
+      client.println(""); //  do not forget this one
+      client.println("<!DOCTYPE HTML>");
+      client.println("<html><head>");
+      client.println("<title> LINE FOLLOWER </title><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>");
+      client.println("<style>.tab,.tab td{border:1px solid black;}</style>");
+      client.println("</head><body>");
+      client.println("<table class='tab'>");
+      client.println("<tr>");
+      client.println("<td>p_max</td>");
+      client.println("<td>p_min</td>");
+      client.println("<td>p_granica</td>");
+      client.println("</tr>");
+      client.println("<tr>");
+      client.println("<td>");
+      client.println(p_max);
+      client.println("</td>");
+      client.println("<td>");
+      client.println(p_min);
+      client.println("</td>");
+      client.println("<td>");
+      client.println(p_granica_final);
+      client.println("</td>");
+      client.println("</tr>");
+      client.println("</table>");
+      if(automat==LOW){
+        client.println("<table>");
+        client.println("<tr>");
+        client.println("<td></td>");
+        client.println("<td>");
+        client.println("<span style='font-size:100px;'><a style='text-decoration:none;' href=\"/WIFI_CONTROL=UP\">&uarr;</a></span>");
+        client.println("</td>");
+        client.println("<td></td>");
+        client.println("</tr>");
+        client.println("<tr>");
+        client.println("<td>");
+        client.println("<span style='font-size:100px;'><a  style='text-decoration:none;' href=\"/WIFI_CONTROL=LEFT\">&#8592;</a></span>");
+        client.println("</td>");
+        client.println("<td>");
+        client.println("<span style='font-size:100px;'><a style='text-decoration:none;' href=\"/WIFI_CONTROL=STOP\">&#9633;</a></span>");
+        client.println("</td>");
+        client.println("<td>");
+        client.println("<span style='font-size:100px;'><a style='text-decoration:none;' href=\"/WIFI_CONTROL=RIGHT\">&#8594;</a></span>");
+        client.println("</td>");
+        client.println("</tr>");
+        client.println("<tr>");
+        client.println("<td></td>");           
+        client.println("<td>");  
+        client.println("<span style='font-size:100px;'><a style='text-decoration:none;' href=\"/WIFI_CONTROL=DOWN\">&darr;</a></span>");
+        client.println("</td>");
+        client.println("<td></td>");
+        client.println("</tr>");
+        client.println("</table>");
+      }
+      client.println("<br/>");
+      client.println("<a ");
+      if(automat==LOW){
+        client.println("href='/WIFI_AUTOMAT=ON' style='background-color:red;padding:10px;color:white;'> AUTOMAT OFF");
+      }else{
+        client.println("href='/WIFI_AUTOMAT=OFF' style='background-color:green;padding:10px;color:white;'> AUTOMAT ON");
+      }
+      client.println("</a>");
+      if(automat==LOW){
+        client.println("<a href='/WIFI_KALIBRACJA=ON' style='background-color:YELLOW;padding:10px;color:black;'> KALIBRACJA </a>");
+      }
+      client.println("</body></html>");
+      //przerzucenie
+      //if(request.indexOf("=")!=-1){
+        //client.println("<meta http-equiv='refresh' content='0; url =/' /></head><body></body></html>");
+      //}
+    }
   }
-  Serial.println();
-  delay(1000);
-} 
+}
