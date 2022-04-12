@@ -15,10 +15,11 @@ WiFiServer server(300);
 
 #include <SparkFun_TB6612.h>
 
-#define AIN1 D2
-#define BIN1 D7
+#define AIN1 D3
 #define AIN2 D4
-#define BIN2 D8
+//pozamieniane w kierunku
+#define BIN1 D2
+#define BIN2 D1
 #define PWMA D5
 #define PWMB D6
 #define STBY D0
@@ -29,6 +30,7 @@ const int offsetB = 1;
 Motor motor1 = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
 Motor motor2 = Motor(BIN1, BIN2, PWMB, offsetB, STBY);
 
+bool no_back = HIGH;
 
 void setup() {
   // put your setup code here, to run once:
@@ -188,8 +190,8 @@ void loop() {
         Serial.println(PID_output);
       }
 
-      motor_speed_a = MOTOR_SPEED_AUTO + PID_output + offset_A;
-      motor_speed_b = MOTOR_SPEED_AUTO - PID_output + offset_B;
+      motor_speed_a = MOTOR_SPEED_AUTO - PID_output + offset_A;
+      motor_speed_b = MOTOR_SPEED_AUTO + PID_output + offset_B;
 
       if(debug==HIGH){
         Serial.print("motor_speed_a raw =");
@@ -210,7 +212,10 @@ void loop() {
       }else if(motor_speed_b<-MAX_MOTOR_SPEED){
         motor_speed_b=-MAX_MOTOR_SPEED;
       }
-      
+      if(no_back == HIGH){
+        if(motor_speed_a<0)motor_speed_a=0;
+        if(motor_speed_b<0)motor_speed_b=0;
+      }
       if(debug==HIGH){
         Serial.print("motor_speed_a =");
         Serial.print(motor_speed_a);
@@ -289,10 +294,16 @@ void loop() {
         automat=HIGH;
       }else if (request.indexOf("/WIFI_AUTOMAT=OFF") != -1) {
         automat=LOW;
+        motor1.brake();
+        motor2.brake();
       }else if (request.indexOf("/WIFI_DEBUG=ON") != -1) {
         debug=HIGH;
       } else if (request.indexOf("/WIFI_DEBUG=OFF") != -1) {
         debug=LOW;
+      } else if (request.indexOf("/WIFI_NO_BACK=ON") != -1) {
+        no_back=HIGH;
+      } else if (request.indexOf("/WIFI_NO_BACK=OFF") != -1) {
+        no_back=LOW;
       }  else if (request.indexOf("/get?input1") != -1) {
         get_input = request.indexOf("=")+1;
         get_input_end = request.indexOf("HTTP/1.1");
@@ -412,6 +423,15 @@ void loop() {
           client.println("href='/WIFI_DEBUG=OFF' style='background-color:green;padding:10px;color:white;'> DEBUG ON");
         }
         client.println("</a>");
+        client.println("<a ");
+        if(no_back==LOW){
+          client.println("href='/WIFI_NO_BACK=ON' style='background-color:red;padding:10px;color:white;'> NO_BACK OFF");
+        }else{
+          client.println("href='/WIFI_NO_BACK=OFF' style='background-color:green;padding:10px;color:white;'> NO_BACK ON");
+        }
+        client.println("</a>");
+        client.println("<br>");
+        client.println("<br>");
         /*
         if(automat==LOW){
           client.println("<a href='/WIFI_KALIBRACJA=ON' style='background-color:YELLOW;padding:10px;color:black;'> KALIBRACJA </a>");
